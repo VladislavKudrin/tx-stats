@@ -19,6 +19,8 @@ BASE_DIR = Path(__file__).parent
 SQL_DIR = BASE_DIR / "sql"
 CACHE_DIR = BASE_DIR / "data"
 
+LAST_EPOCH_FILE = BASE_DIR / "data" / "last_pr_epoch.txt"
+
 CIP10_REGISTRY_URL = (
     "https://raw.githubusercontent.com/cardano-foundation/CIPs/master/"
     "CIP-0010/registry.json"
@@ -51,6 +53,16 @@ def check_db():
     with psycopg.connect(**conninfo, connect_timeout=5) as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT 1")
+
+
+def get_last_pr_epoch():
+    if LAST_EPOCH_FILE.exists():
+        return int(LAST_EPOCH_FILE.read_text().strip())
+    return None
+
+
+def save_last_pr_epoch(epoch: int):
+    LAST_EPOCH_FILE.write_text(str(epoch), encoding="utf-8")
 
 
 def canonical_project_name(name):
@@ -389,8 +401,8 @@ def build_metadata(epoch_info, total_tx_count):
     }
 
 
-def build_report():
-    epoch_info = get_epoch_window()
+def build_report(epoch_info):
+
     total_tx_count = get_total_tx_count(
         epoch_info["window_start"],
         epoch_info["window_end"],
@@ -422,12 +434,24 @@ def main():
     check_db()
     os.makedirs("data", exist_ok=True)
 
-    report = build_report()
+    epoch_info = get_epoch_window()
+    last_completed_epoch = epoch_info["last_completed_epoch"]
+
+    last_pr_epoch = get_last_pr_epoch()
+    print(last_pr_epoch, last_completed_epoch)
+
+    if last_pr_epoch == last_completed_epoch:
+        print(f"[skip] PR already created for epoch {last_completed_epoch}")
+        return
+
+    report = build_report(epoch_info)
     out_path = BASE_DIR / "data" / "report.json"
     out_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    print(f"Wrote {out_path}")
+
+    save_last_pr_epoch(last_completed_epoch)
+    print(f"[ok] Report generated for epoch {last_completed_epoch}")
 
 
 if __name__ == "__main__":
